@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OmniGaming 社媒数据看板</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+:root{--color-fg:#1d1d1b;--color-fg-muted:#6b6b66;--color-bg:#fff;--color-panel:#fafaf8;--color-border-line:#e6e4dd;--color-ok:#1f8a4c;--color-warn:#b7791f;--color-bad:#c0392b;
+--font-anthropic-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--font-anthropic-serif:Georgia,"Songti SC",serif;
+--cds-font-size-caption:12px;--cds-font-size-body:14px;--cds-font-size-heading:17px;--cds-font-size-title:26px;--cds-font-weight-medium:600;
+--cds-gap-xs:4px;--cds-gap-sm:8px;--cds-gap-md:14px;--cds-gap-lg:20px;--cds-gap-xl:32px;--cds-pad-lg:16px;--cds-radius:10px;
+--cds-chart-muted:#c8c6bf;--cds-chart-grid:#ecebe6;--cds-chart-axis:#c8c6bf;--cds-chart-reference:#9a988f;--cds-text-secondary:#6b6b66;
+--cds-surface-popover:#fff;--cds-border:#e0ded6;--cds-shadow-popover:0 4px 14px rgba(0,0,0,.12)}
+@media (prefers-color-scheme: dark){:root{--color-fg:#ecebe6;--color-fg-muted:#a3a19a;--color-bg:#1b1b19;--color-panel:#232321;--color-border-line:#3a3a36;--cds-chart-grid:#33332f;--cds-chart-axis:#55554f;--cds-text-secondary:#a3a19a;--cds-surface-popover:#2a2a27;--cds-border:#44443f;--color-ok:#4cc27e;--color-bad:#e5675a}}
+body{margin:0;background:var(--color-bg)}
+.og-wrap{max-width:1180px;margin:0 auto;padding:24px 18px 48px}
+.og a{color:inherit}
+</style></head><body>
+<div class="og-wrap">
+<p id="og-err" hidden style="color:#c0392b">数据加载失败，请稍后刷新。</p>
+<script>
+(function(){
+  const S = {data:{}, calcs:[], calcVals:{}, draws:[], on:[], params:{}};
+  const cs = getComputedStyle(document.documentElement);
+  window.dash = {
+    colors: ['#3b6fd8','#e0702c','#1f9e78','#d64f91','#c99a14','#7a5bd0','#2aa3b8'],
+    data(id){ if (id in S.calcVals) return {status:'ok', data:S.calcVals[id]}; if (id in S.data) return {status:'ok', data:S.data[id]}; return {status:'loading', data:[]}; },
+    calc(id, o){ S.calcs.push([id,o]); },
+    loader(){}, refresh(){}, setLink(){},
+    draw(name, fn){ S.draws.push([name, fn]); },
+    onData(fn){ S.on.push(fn); },
+    params(){ return Object.assign({}, S.params); },
+    setParams(p){ for (const k in p){ if (p[k] == null) delete S.params[k]; else S.params[k] = p[k]; } render(); },
+    resetParams(){ S.params = {}; render(); }
+  };
+  function compute(){
+    S.calcVals = {};
+    for (const [id,o] of S.calcs){
+      const args = o.inputs.map((i) => i in S.calcVals ? S.calcVals[i] : (S.data[i] || []));
+      try { S.calcVals[id] = o.fn(...args); } catch(e){ console.error(id, e); S.calcVals[id] = []; }
+    }
+  }
+  function render(){
+    S.on.forEach((f) => { try { f(); } catch(e){ console.error(e); } });
+    S.draws.forEach(([n,f]) => document.querySelectorAll('[data-draw="'+n+'"]').forEach((el) => { try { f(el); } catch(e){ console.error(n, e); } }));
+  }
+  window.__ogStart = async function(){
+    try {
+      const r = await fetch('data.json?t=' + Date.now(), {cache:'no-store'});
+      S.data = await r.json();
+    } catch(e){ document.getElementById('og-err').hidden = false; return; }
+    compute(); render();
+    let w = window.innerWidth; window.addEventListener('resize', () => { if (Math.abs(window.innerWidth - w) > 20){ w = window.innerWidth; render(); } });
+  };
+})();
+</script>
+<style>
+.og{display:flex;flex-direction:column;gap:var(--cds-gap-xl);font-family:var(--font-anthropic-sans);color:var(--color-fg)}
+.og h1{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0}
+.og h2{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0}
+.og h3{margin:0;font-size:var(--cds-font-size-body);font-weight:var(--cds-font-weight-medium)}
+.og .muted{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);margin:0}
+.og .lead{font-size:var(--cds-font-size-body);margin:var(--cds-gap-sm) 0 0}
+.og-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--cds-gap-sm);margin-bottom:var(--cds-gap-md)}
+.og-ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:var(--cds-font-size-caption)}
+.og-btn{font:inherit;font-size:var(--cds-font-size-caption);padding:4px 10px;border:1px solid var(--color-border-line);border-radius:999px;background:var(--color-bg);color:var(--color-fg);cursor:pointer}
+.og-btn.on{background:var(--color-fg);color:var(--color-bg);border-color:var(--color-fg)}
+.og-date{font:inherit;font-size:var(--cds-font-size-caption);padding:3px 6px;border:1px solid var(--color-border-line);border-radius:6px;background:var(--color-bg);color:var(--color-fg)}
+.og-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:var(--cds-gap-md)}
+.og-card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg)}
+.og-card h3{display:flex;align-items:center;gap:8px;margin-bottom:var(--cds-gap-sm)}
+.og-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.og-big{font-family:var(--font-anthropic-serif);font-size:2.1rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.og-chg{font-size:var(--cds-font-size-caption);font-variant-numeric:tabular-nums;margin-left:6px}
+.og-chg.up{color:var(--color-ok)}.og-chg.down{color:var(--color-bad)}
+.og-row{display:flex;justify-content:space-between;gap:8px;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:6px;font-variant-numeric:tabular-nums}
+.og-row b{color:var(--color-fg);font-weight:var(--cds-font-weight-medium)}
+.og-chart{position:relative;min-height:240px}
+.og-chart text{fill:var(--cds-text-secondary);font-size:var(--cds-font-size-caption)}
+.og-legend{display:flex;flex-wrap:wrap;gap:var(--cds-gap-md);font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-bottom:var(--cds-gap-sm)}
+.og-legend span{display:inline-flex;align-items:center;gap:6px}
+.og-tip{position:absolute;pointer-events:none;background:var(--cds-surface-popover);border:1px solid var(--cds-border);box-shadow:var(--cds-shadow-popover);border-radius:6px;padding:6px 8px;font-size:var(--cds-font-size-caption);white-space:nowrap;z-index:2}
+.og-tablewrap{overflow-x:auto}
+.og table{width:100%;border-collapse:collapse;font-size:var(--cds-font-size-caption);font-variant-numeric:tabular-nums}
+.og th,.og td{padding:7px 9px;border-bottom:1px solid var(--color-border-line);text-align:right;white-space:nowrap}
+.og th.l,.og td.l{text-align:left;white-space:normal}
+.og thead th{color:var(--color-fg-muted);font-weight:var(--cds-font-weight-medium)}
+.og td.sum{font-weight:var(--cds-font-weight-medium)}
+.og-win{font-weight:var(--cds-font-weight-medium);color:var(--color-ok)}
+.og-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--cds-gap-md)}
+.og-chip{font:inherit;font-size:var(--cds-font-size-caption);padding:5px 10px;border:1px solid var(--color-border-line);border-radius:8px;background:var(--color-bg);color:var(--color-fg);cursor:pointer;text-align:left;display:inline-flex;gap:6px;align-items:center}
+.og-chip.on{border-color:var(--color-fg);box-shadow:inset 0 0 0 1px var(--color-fg)}
+.og-tag{font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--color-border-line);color:var(--color-fg-muted)}
+.og details summary{cursor:pointer;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+.og details ul{margin:6px 0 0 18px;padding:0;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.og-sub{color:var(--color-fg-muted);font-size:11px}
+.og-links{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:3px;font-size:11px;color:var(--color-fg-muted)}
+.og-links a,.og-lk{color:var(--color-fg);text-decoration:underline;margin-left:5px}
+.og [data-dash-source-state=refreshing]{opacity:.5}
+</style>
+
+<div class="og">
+  <header id="top">
+    <h1>OmniGaming 社媒数据看板</h1>
+    <p class="muted">Facebook 公共主页 OmniGaming · Instagram @omnigaming_official · X @OmniGaming_Official｜最近一次读取：<span data-draw="updated" data-source="snapshots" data-field="captured_at">—</span>（每 6 小时自动更新）</p>
+    <p class="lead">近 30 天三个平台共获得 <b data-draw="total" data-source="total_views">—</b> 次浏览，<b data-draw="leader">—</b> 最多；所选时段内浏览最多的是 <b data-draw="rleader">—</b>。</p>
+  </header>
+
+  <section id="summary">
+    <div class="og-head">
+      <h2>各平台总览 · 全部累计</h2>
+      <p class="muted">Facebook / Instagram 自 <span data-draw="s-since" data-source="daily_views" data-field="date">—</span> 起有数据，累计到 <span data-draw="s-until" data-source="daily_views" data-field="date">—</span></p>
+    </div>
+    <div class="og-cards">
+      <div class="og-card" id="sum-fb">
+        <h3><span class="og-dot" data-draw="dot-fb0"></span>Facebook</h3>
+        <div class="og-big" data-draw="s-fb-views_all" data-source="summary" data-field="views_all" data-where="platform=Facebook">—</div>
+        <p class="muted">累计浏览量</p>
+        <div class="og-row">粉丝<b data-draw="s-fb-followers" data-source="summary" data-field="followers" data-where="platform=Facebook">—</b></div>
+        <div class="og-row">累计浏览人数<b data-draw="s-fb-reach_all" data-source="summary" data-field="reach_all" data-where="platform=Facebook">—</b></div>
+        <div class="og-row">累计互动<b data-draw="s-fb-interactions_all" data-source="summary" data-field="interactions_all" data-where="platform=Facebook">—</b></div>
+        <div class="og-row">主页访问<b data-draw="s-fb-visits_all" data-source="summary" data-field="visits_all" data-where="platform=Facebook">—</b></div>
+        <div class="og-row">帖子数<b data-draw="s-fb-posts" data-source="summary" data-field="posts" data-where="platform=Facebook">—</b></div>
+        <div class="og-row">平均每帖浏览<b data-draw="s-fb-avg_views" data-source="summary" data-field="avg_views" data-where="platform=Facebook">—</b></div>
+      </div>
+      <div class="og-card" id="sum-ig">
+        <h3><span class="og-dot" data-draw="dot-ig0"></span>Instagram</h3>
+        <div class="og-big" data-draw="s-ig-views_all" data-source="summary" data-field="views_all" data-where="platform=Instagram">—</div>
+        <p class="muted">累计浏览量</p>
+        <div class="og-row">粉丝<b data-draw="s-ig-followers" data-source="summary" data-field="followers" data-where="platform=Instagram">—</b></div>
+        <div class="og-row">累计覆盖人数<b data-draw="s-ig-reach_all" data-source="summary" data-field="reach_all" data-where="platform=Instagram">—</b></div>
+        <div class="og-row">累计互动<b data-draw="s-ig-interactions_all" data-source="summary" data-field="interactions_all" data-where="platform=Instagram">—</b></div>
+        <div class="og-row">主页访问<b data-draw="s-ig-visits_all" data-source="summary" data-field="visits_all" data-where="platform=Instagram">—</b></div>
+        <div class="og-row">帖子数<b data-draw="s-ig-posts" data-source="summary" data-field="posts" data-where="platform=Instagram">—</b></div>
+        <div class="og-row">平均每帖浏览<b data-draw="s-ig-avg_views" data-source="summary" data-field="avg_views" data-where="platform=Instagram">—</b></div>
+      </div>
+      <div class="og-card" id="sum-x">
+        <h3><span class="og-dot" data-draw="dot-x0"></span>X</h3>
+        <div class="og-big" data-draw="s-x-views_all" data-source="summary" data-field="views_all" data-where="platform=X">—</div>
+        <p class="muted">累计浏览量（2026 年全部帖子之和）</p>
+        <div class="og-row">粉丝<b data-draw="s-x-followers" data-source="summary" data-field="followers" data-where="platform=X">—</b></div>
+        <div class="og-row">累计互动<b data-draw="s-x-interactions_all" data-source="summary" data-field="interactions_all" data-where="platform=X">—</b></div>
+        <div class="og-row">帖子数<b data-draw="s-x-posts" data-source="summary" data-field="posts" data-where="platform=X">—</b></div>
+        <div class="og-row">平均每帖浏览<b data-draw="s-x-avg_views" data-source="summary" data-field="avg_views" data-where="platform=X">—</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="overview">
+    <div class="og-head">
+      <h2>各平台概况新增</h2>
+      <div class="og-ctrl" id="range-ctrl">
+        <button class="og-btn" data-range="1">1 天</button>
+        <button class="og-btn" data-range="7">1 周</button>
+        <button class="og-btn" data-range="14">2 周</button>
+        <button class="og-btn" data-range="30">30 天</button>
+        <button class="og-btn" data-range="all">全部</button>
+        <span>自定义</span>
+        <input type="date" class="og-date" aria-label="开始日期" data-draw="r-start">
+        <span>至</span>
+        <input type="date" class="og-date" aria-label="结束日期" data-draw="r-end">
+      </div>
+    </div>
+    <p class="muted" style="margin-bottom:var(--cds-gap-md)">时段：<span data-draw="r-label">—</span>，与前一个同长度时段相比。Meta 后台按天统计到昨天为止。</p>
+    <div class="og-cards" data-source="daily_all snapshots">
+      <div class="og-card" id="card-fb">
+        <h3><span class="og-dot" data-draw="dot-fb"></span>Facebook</h3>
+        <div><span class="og-big" data-draw="rv-fb">—</span><span class="og-chg" data-draw="rc-fb"></span></div>
+        <p class="muted">新增浏览量</p>
+        <div class="og-row">新增互动<b data-draw="ri-fb">—</b></div>
+        <div class="og-row">新增关注<b data-draw="rf-fb">—</b></div>
+        <div class="og-row">主页访问<b data-draw="rvis-fb">—</b></div>
+        <div class="og-row">当前粉丝<b data-draw="fol-fb" data-source="latest" data-field="followers" data-where="platform=Facebook">—</b></div>
+      </div>
+      <div class="og-card" id="card-ig">
+        <h3><span class="og-dot" data-draw="dot-ig"></span>Instagram</h3>
+        <div><span class="og-big" data-draw="rv-ig">—</span><span class="og-chg" data-draw="rc-ig"></span></div>
+        <p class="muted">新增浏览量</p>
+        <div class="og-row">新增互动<b data-draw="ri-ig">—</b></div>
+        <div class="og-row">新增关注<b data-draw="rf-ig">—</b></div>
+        <div class="og-row">帖子数<b data-draw="posts-ig" data-source="latest" data-field="posts" data-where="platform=Instagram">—</b></div>
+        <div class="og-row">当前粉丝<b data-draw="fol-ig" data-source="latest" data-field="followers" data-where="platform=Instagram">—</b></div>
+      </div>
+      <div class="og-card" id="card-x">
+        <h3><span class="og-dot" data-draw="dot-x"></span>X</h3>
+        <div><span class="og-big" data-draw="rv-x">—</span><span class="og-chg" data-draw="rc-x"></span></div>
+        <p class="muted">新增浏览量</p>
+        <div class="og-row">新增互动<b data-draw="ri-x">—</b></div>
+        <div class="og-row">新增关注<b data-draw="rf-x">—</b></div>
+        <div class="og-row">帖子数<b data-draw="posts-x" data-source="latest" data-field="posts" data-where="platform=X">—</b></div>
+        <div class="og-row">当前粉丝<b data-draw="fol-x" data-source="latest" data-field="followers" data-where="platform=X">—</b></div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:var(--cds-gap-sm)" data-draw="r-note"></p>
+  </section>
+
+  <section id="daily">
+    <h2 style="margin-bottom:var(--cds-gap-sm)">每日浏览量</h2>
+    <div class="og-legend"><span><i class="og-dot" data-draw="dot-fb2"></i>Facebook</span><span><i class="og-dot" data-draw="dot-ig2"></i>Instagram</span><span><i class="og-dot" data-draw="dot-x2"></i>X</span></div>
+    <div class="og-chart" data-draw="daily" data-source="daily_all"></div>
+    <p class="muted">跟随上方时段。X 的每日浏览由每天最后一次读取的全部帖子浏览量相减得到，从 2026-11-12 起逐日出现。</p>
+  </section>
+
+  <section id="followers">
+    <h2 style="margin-bottom:var(--cds-gap-sm)">粉丝数变化</h2>
+    <div class="og-legend"><span><i class="og-dot" data-draw="dot-fb3"></i>Facebook</span><span><i class="og-dot" data-draw="dot-ig3"></i>Instagram</span><span><i class="og-dot" data-draw="dot-x3"></i>X</span></div>
+    <div class="og-chart" data-draw="fol" data-source="snapshots" style="min-height:200px"></div>
+    <p class="muted">每次读取记一个点，从 2026-11-11 开始记录。</p>
+  </section>
+
+  <section id="posts">
+    <div class="og-head">
+      <h2>内容表现 · 中英版本对比</h2>
+      <div class="og-ctrl" id="post-ctrl">
+        <span>发布日期</span>
+        <button class="og-btn" data-pdays="0">全部</button>
+        <button class="og-btn" data-pdays="7">近 7 天</button>
+        <button class="og-btn" data-pdays="14">近 14 天</button>
+        <input type="date" class="og-date" aria-label="发布日期起" data-draw="p-from">
+        <span>至</span>
+        <input type="date" class="og-date" aria-label="发布日期止" data-draw="p-to">
+      </div>
+    </div>
+    <div class="og-tablewrap">
+      <table id="topic-table" data-source="topic_views" data-row-key="topic">
+        <thead>
+          <tr><th class="l" data-field="topic">内容主题 · 原帖链接</th>
+            <th data-field="zh_date">中文·发布</th><th data-field="zh_fb">中文·FB</th><th data-field="zh_ig">中文·IG</th><th data-field="zh_x">中文·X</th>
+            <th data-field="en_date">英文·发布</th><th data-field="en_fb">英文·FB</th><th data-field="en_ig">英文·IG</th><th data-field="en_x">英文·X</th>
+            <th data-field="total">合计浏览</th></tr>
+        </thead>
+        <tbody data-draw="topics"></tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin-top:var(--cds-gap-sm)">数字为浏览量，同一主题中英两版里较高的一边标绿；不在所选发布日期内的版本变淡显示。</p>
+  </section>
+
+  <section id="compare">
+    <h2 style="margin-bottom:var(--cds-gap-sm)">单帖查看与对比</h2>
+    <p class="muted" style="margin-bottom:var(--cds-gap-sm)">点选 1–4 条帖子（受上方发布日期筛选影响）。</p>
+    <div class="og-chips" data-draw="chips" data-source="posts_calc"></div>
+    <div class="og-legend" data-draw="cmp-legend"></div>
+    <div class="og-chart" data-draw="cmp-chart" data-source="posts_calc" style="min-height:220px"></div>
+    <div class="og-tablewrap">
+      <table id="cmp-table" data-source="posts_calc">
+        <thead><tr data-draw="cmp-head"></tr></thead>
+        <tbody data-draw="cmp-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <details id="notes">
+    <summary>指标说明</summary>
+    <ul>
+      <li>浏览量：内容被看到的次数（Meta 新口径“浏览量”，X 的 views）。</li>
+      <li>FB 浏览人数 / IG 覆盖人数：看到内容的去重账号数。</li>
+      <li>FB 与 IG 同时发布的帖子，Meta 后台只给合计的互动数，所以互动按“Meta（FB+IG）”合并展示；IG 单帖浏览量 = Meta 合计浏览 − Facebook 浏览。</li>
+      <li>X 账号未开通 Premium，近 30 天数据为各帖子数据之和；每日数据靠每天读取的差值。</li>
+      <li>新增关注：Facebook 用后台每日关注次数；Instagram 与 X 用两次读取之间的粉丝差值，记录不足时显示“—”。</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+const PL = window.PL = ['Facebook','Instagram','X'];
+window.ogColor = (p) => dash.colors[PL.indexOf(p)];
+window.ogFmt = (v) => v == null || v === '' || Number.isNaN(v) ? '—' : d3.format(',')(+v);
+window.ogNum = (v) => v == null || v === '' ? null : +v;
+window.ogDay = d3.utcFormat('%Y-%m-%d');
+window.ogParseDay = d3.utcParse('%Y-%m-%d');
+
+dash.calc('latest', {
+  title: '各平台最新一次读取',
+  description: '每个平台取最近一次读取的那一行。',
+  inputs: ['snapshots'],
+  fn: (snapshots) => {
+    const by = d3.group(snapshots, (r) => r.platform);
+    return ['Facebook','Instagram','X'].filter((p) => by.has(p)).map((p) => by.get(p).slice().sort((a, b) => d3.ascending(a.captured_at, b.captured_at)).pop());
+  }
+});
+
+dash.calc('summary', {
+  title: '各平台全部累计',
+  description: 'Facebook / Instagram：每日数据全部历史相加，浏览人数/覆盖人数取后台“今年”的去重数；X：2026 年全部帖子之和；平均每帖浏览 = 累计浏览 ÷ 帖子数。',
+  inputs: ['daily_views', 'latest'],
+  fn: (daily_views, latest) => latest.map((s) => {
+    const rows = daily_views.filter((r) => r.platform === s.platform);
+    const sum = (f) => rows.length ? d3.sum(rows, (r) => +r[f] || 0) : null;
+    const isX = s.platform === 'X';
+    const views = isX ? (s.views_total ?? null) : sum('views');
+    return {platform: s.platform, views_all: views,
+      interactions_all: isX ? (s.interactions_total ?? null) : sum('interactions'),
+      visits_all: isX ? null : sum('visits'), reach_all: s.reach_all ?? null,
+      followers: s.followers, posts: s.posts,
+      avg_views: views != null && s.posts ? Math.round(views / s.posts) : null};
+  })
+});
+
+dash.calc('total_views', {
+  title: '三平台近 30 天浏览量合计',
+  inputs: ['latest'],
+  fn: (latest) => d3.sum(latest, (r) => +r.views_30d || 0)
+});
+
+dash.calc('x_daily', {
+  title: 'X 每日浏览与互动（读取差值）',
+  description: '每天最后一次读取的 X 全部帖子浏览/互动总数，减去前一天最后一次读取的值。',
+  inputs: ['snapshots'],
+  fn: (snapshots) => {
+    const xs = snapshots.filter((r) => r.platform === 'X' && r.views_total != null).sort((a, b) => d3.ascending(a.captured_at, b.captured_at));
+    const lastOfDay = Array.from(d3.rollup(xs, (v) => v[v.length - 1], (r) => r.captured_at.slice(0, 10))).sort((a, b) => d3.ascending(a[0], b[0]));
+    const out = [];
+    for (let i = 1; i < lastOfDay.length; i++) {
+      const [day, cur] = lastOfDay[i], prev = lastOfDay[i - 1][1];
+      out.push({date: day, platform: 'X', views: Math.max(0, cur.views_total - prev.views_total), interactions: Math.max(0, (cur.interactions_total || 0) - (prev.interactions_total || 0)), follows: cur.followers - prev.followers});
+    }
+    return out;
+  }
+});
+
+dash.calc('daily_all', {
+  title: '三平台每日数据',
+  description: 'Facebook、Instagram 的后台每日数据，加上 X 的读取差值。',
+  inputs: ['daily_views', 'x_daily'],
+  fn: (daily_views, x_daily) => daily_views.map((r) => ({date: r.date, platform: r.platform, views: +r.views || 0, interactions: r.interactions == null ? null : +r.interactions, follows: r.follows == null ? null : +r.follows, visits: r.visits == null ? null : +r.visits}))
+    .concat(x_daily.map((r) => ({date: r.date, platform: 'X', views: r.views, interactions: r.interactions, follows: r.follows, visits: null})))
+});
+
+dash.calc('posts_calc', {
+  title: '单帖数据（含推算的 IG 浏览）',
+  description: 'IG 浏览 = Meta 合计浏览 − Facebook 浏览；X 互动 = 赞+转发+回复+收藏；合计浏览 = FB+IG+X。',
+  inputs: ['posts'],
+  fn: (posts) => {
+    const lastAt = d3.max(posts, (r) => r.captured_at);
+    return posts.filter((r) => r.captured_at === lastAt).map((r) => {
+      const fb = +r.fb_views || 0, meta = +r.meta_views || 0, x = +r.x_views || 0;
+      const ig = Math.max(0, meta - fb);
+      return Object.assign({}, r, {ig_views: ig, total_views: fb + ig + x,
+        x_interactions: (+r.x_likes || 0) + (+r.x_reposts || 0) + (+r.x_replies || 0) + (+r.x_bookmarks || 0)});
+    });
+  }
+});
+
+dash.calc('topic_views', {
+  title: '按主题合并的中英版本浏览量',
+  description: '同一主题的中文版与英文版各平台浏览量并排。',
+  inputs: ['posts_calc'],
+  fn: (posts_calc) => Array.from(d3.group(posts_calc, (r) => r.topic), ([topic, rs]) => {
+    const zh = rs.find((r) => r.lang === '中文') || {}, en = rs.find((r) => r.lang === 'EN') || {};
+    return {topic, topic_en: zh.topic_en || en.topic_en || '',
+      zh_fb_url: zh.fb_url || null, zh_ig_url: zh.ig_url || null, zh_x_url: zh.x_url || null,
+      en_fb_url: en.fb_url || null, en_ig_url: en.ig_url || null, en_x_url: en.x_url || null,
+      zh_date: zh.date || null, zh_fb: zh.fb_views ?? null, zh_ig: zh.ig_views ?? null, zh_x: zh.x_views ?? null,
+      en_date: en.date || null, en_fb: en.fb_views ?? null, en_ig: en.ig_views ?? null, en_x: en.x_views ?? null,
+      zh_total: zh.total_views ?? null, en_total: en.total_views ?? null, total: (zh.total_views || 0) + (en.total_views || 0)};
+  }).sort((a, b) => d3.descending(a.total, b.total))
+});
+</script>
+
+<script>
+/* ---------- state helpers ---------- */
+window.ogRange = () => {
+  const d = dash.data('daily_all');
+  const meta = (d.status === 'ok' ? d.data : []).filter((r) => r.platform !== 'X');
+  const maxDay = d3.max(meta, (r) => r.date), minDay = d3.min(meta, (r) => r.date);
+  if (!maxDay) return null;
+  const p = dash.params();
+  let end = p.r_end || maxDay, start = p.r_start;
+  if (!start) { if (p.r_days === 'all') start = minDay; else { const n = +(p.r_days || 7); start = ogDay(d3.utcDay.offset(ogParseDay(end), -(n - 1))); } }
+  if (start > end) [start, end] = [end, start];
+  const len = d3.utcDay.count(ogParseDay(start), ogParseDay(end)) + 1;
+  const pEnd = ogDay(d3.utcDay.offset(ogParseDay(start), -1)), pStart = ogDay(d3.utcDay.offset(ogParseDay(start), -len));
+  return {start, end, len, pStart, pEnd, minDay, maxDay};
+};
+window.ogPostWin = () => {
+  const p = dash.params();
+  return {from: p.p_from || '', to: p.p_to || ''};
+};
+window.ogInWin = (date) => { const w = ogPostWin(); return date && (!w.from || date >= w.from) && (!w.to || date <= w.to); };
+
+document.querySelectorAll('#range-ctrl [data-range]').forEach((b) => b.addEventListener('click', () => {
+  const v = b.getAttribute('data-range');
+  dash.setParams({r_days: v === 'all' ? 'all' : +v, r_start: null, r_end: null});
+}));
+document.querySelectorAll('#post-ctrl [data-pdays]').forEach((b) => b.addEventListener('click', () => {
+  const n = +b.getAttribute('data-pdays');
+  const d = dash.data('posts');
+  const last = d.status === 'ok' ? d3.max(d.data, (r) => r.captured_at) : null;
+  if (!n || !last) { dash.setParams({p_from: null, p_to: null, p_days: 0}); return; }
+  const to = last.slice(0, 10);
+  dash.setParams({p_days: n, p_from: ogDay(d3.utcDay.offset(ogParseDay(to), -(n - 1))), p_to: to});
+}));
+
+dash.onData(() => {
+  const p = dash.params();
+  const custom = !!(p.r_start || p.r_end);
+  document.querySelectorAll('#range-ctrl [data-range]').forEach((b) => { b.className = 'og-btn' + (!custom && String(b.getAttribute('data-range')) === String(p.r_days || 7) ? ' on' : ''); });
+  document.querySelectorAll('#post-ctrl [data-pdays]').forEach((b) => { b.className = 'og-btn' + (+b.getAttribute('data-pdays') === +(p.p_days || 0) && !(p.p_custom) ? ' on' : ''); });
+});
+
+/* ---------- small drawings ---------- */
+[['dot-fb0',0],['dot-ig0',1],['dot-x0',2],['dot-fb',0],['dot-ig',1],['dot-x',2],['dot-fb2',0],['dot-ig2',1],['dot-x2',2],['dot-fb3',0],['dot-ig3',1],['dot-x3',2]].forEach(([n, i]) => {
+  dash.draw(n, (el) => { el.style.background = dash.colors[i]; });
+});
+
+dash.draw('updated', (el) => {
+  const d = dash.data('snapshots');
+  if (d.status !== 'ok' || !d.data.length) { el.textContent = '—'; return; }
+  el.textContent = d3.timeFormat('%Y-%m-%d %H:%M')(new Date(d3.max(d.data, (r) => r.captured_at)));
+});
+dash.draw('total', (el) => {
+  const d = dash.data('total_views');
+  el.textContent = d.status === 'ok' && d.data != null ? ogFmt(d.data) : '—';
+});
+dash.draw('leader', (el) => {
+  const d = dash.data('latest');
+  el.textContent = d.status === 'ok' && d.data && d.data.length ? d3.greatest(d.data, (r) => +r.views_30d || 0).platform : '—';
+});
+
+[['fol-fb','Facebook','followers'],['fol-ig','Instagram','followers'],['fol-x','X','followers'],['posts-ig','Instagram','posts'],['posts-x','X','posts']].forEach(([n, pl, f]) => {
+  dash.draw(n, (el) => {
+    const d = dash.data('latest');
+    const r = d.status === 'ok' && d.data ? d.data.find((x) => x.platform === pl) : null;
+    el.textContent = r ? ogFmt(r[f]) : '—';
+  });
+});
+
+dash.draw('s-since', (el) => {
+  const d = dash.data('daily_views');
+  const act = d.status === 'ok' ? d.data.filter((r) => (+r.views || 0) + (+r.visits || 0) > 0) : [];
+  el.textContent = act.length ? d3.min(act, (r) => r.date) : '—';
+});
+dash.draw('s-until', (el) => {
+  const d = dash.data('daily_views');
+  el.textContent = d.status === 'ok' && d.data.length ? d3.max(d.data, (r) => r.date) : '—';
+});
+[['fb', 'Facebook'], ['ig', 'Instagram'], ['x', 'X']].forEach(([k, pl]) => ['views_all', 'followers', 'reach_all', 'interactions_all', 'visits_all', 'posts', 'avg_views'].forEach((f) => {
+  dash.draw('s-' + k + '-' + f, (el) => {
+    const d = dash.data('summary');
+    const r = d.status === 'ok' && d.data ? d.data.find((x) => x.platform === pl) : null;
+    el.textContent = r ? ogFmt(r[f]) : '—';
+  });
+}));
+
+/* ---------- range controls ---------- */
+['r-start','r-end'].forEach((n) => dash.draw(n, (el) => {
+  const R = ogRange();
+  if (!R) return;
+  el.min = R.minDay; el.max = d3.max([R.maxDay, ogDay(new Date())]);
+  if (document.activeElement !== el) el.value = n === 'r-start' ? R.start : R.end;
+  el.onchange = () => {
+    if (!(el.value && el.validity.valid)) return;
+    const cur = ogRange();
+    dash.setParams(n === 'r-start' ? {r_start: el.value, r_end: cur.end} : {r_start: cur.start, r_end: el.value});
+  };
+  el.onblur = () => { const c = ogRange(); if (c) el.value = n === 'r-start' ? c.start : c.end; };
+}));
+dash.draw('r-label', (el) => {
+  const R = ogRange();
+  el.textContent = R ? `${R.start} 至 ${R.end}（${R.len} 天）` : '—';
+});
+
+function ogSum(rows, pl, f, a, b) {
+  const rs = rows.filter((r) => r.platform === pl && r.date >= a && r.date <= b && r[f] != null);
+  return rs.length ? d3.sum(rs, (r) => +r[f]) : null;
+}
+function ogFolDiff(snaps, pl, a, b) {
+  const s = snaps.filter((r) => r.platform === pl).sort((x, y) => d3.ascending(x.captured_at, y.captured_at));
+  const before = s.filter((r) => r.captured_at.slice(0, 10) < a).pop();
+  const inEnd = s.filter((r) => r.captured_at.slice(0, 10) <= b).pop();
+  if (!before || !inEnd) return null;
+  return inEnd.followers - before.followers;
+}
+const KEY = {fb: 'Facebook', ig: 'Instagram', x: 'X'};
+Object.keys(KEY).forEach((k) => {
+  const pl = KEY[k];
+  dash.draw('rv-' + k, (el) => {
+    const d = dash.data('daily_all'), R = ogRange();
+    if (d.status !== 'ok' || !R) { el.textContent = '—'; return; }
+    el.textContent = ogFmt(ogSum(d.data, pl, 'views', R.start, R.end));
+  });
+  dash.draw('rc-' + k, (el) => {
+    const d = dash.data('daily_all'), R = ogRange();
+    el.className = 'og-chg';
+    if (d.status !== 'ok' || !R) { el.textContent = ''; return; }
+    const cur = ogSum(d.data, pl, 'views', R.start, R.end), prev = ogSum(d.data, pl, 'views', R.pStart, R.pEnd);
+    if (cur == null || prev == null) { el.textContent = '无对比数据'; return; }
+    if (prev === 0) { el.textContent = cur > 0 ? '前期为 0' : '持平'; return; }
+    const ch = (cur - prev) / prev;
+    el.textContent = (ch >= 0 ? '▲ ' : '▼ ') + (ch >= 9 ? '前期的 ' + d3.format('.1~f')(cur / prev) + ' 倍' : d3.format('.0%')(Math.abs(ch)));
+    el.className = 'og-chg ' + (ch >= 0 ? 'up' : 'down');
+  });
+  dash.draw('ri-' + k, (el) => {
+    const d = dash.data('daily_all'), R = ogRange();
+    el.textContent = d.status === 'ok' && R ? ogFmt(ogSum(d.data, pl, 'interactions', R.start, R.end)) : '—';
+  });
+  dash.draw('rf-' + k, (el) => {
+    const d = dash.data('daily_all'), s = dash.data('snapshots'), R = ogRange();
+    if (d.status !== 'ok' || !R) { el.textContent = '—'; return; }
+    let v = pl === 'Facebook' ? ogSum(d.data, pl, 'follows', R.start, R.end) : null;
+    if (v == null && s.status === 'ok') v = ogFolDiff(s.data, pl, R.start, R.end);
+    el.textContent = v == null ? '—' : (v > 0 ? '+' : '') + ogFmt(v);
+  });
+});
+dash.draw('rvis-fb', (el) => {
+  const d = dash.data('daily_all'), R = ogRange();
+  el.textContent = d.status === 'ok' && R ? ogFmt(ogSum(d.data, 'Facebook', 'visits', R.start, R.end)) : '—';
+});
+dash.draw('rleader', (el) => {
+  const d = dash.data('daily_all'), R = ogRange();
+  if (d.status !== 'ok' || !R) { el.textContent = '—'; return; }
+  const v = PL.map((p) => [p, ogSum(d.data, p, 'views', R.start, R.end) || 0]);
+  const top = d3.greatest(v, (x) => x[1]);
+  el.textContent = top && top[1] > 0 ? `${top[0]}（${ogFmt(top[1])}）` : '暂无浏览';
+});
+dash.draw('r-note', (el) => {
+  const d = dash.data('daily_all'), R = ogRange();
+  if (d.status !== 'ok' || !R) { el.textContent = ''; return; }
+  const xr = d.data.filter((r) => r.platform === 'X' && r.date >= R.start && r.date <= R.end);
+  el.textContent = xr.length ? '' : 'X 在此时段还没有每日数据（从 2026-11-12 起开始积累），所以 X 卡片显示“—”。';
+});
+
+/* ---------- line chart ---------- */
+function ogLine(el, rows, xKey, parseX, fmtX, height) {
+  el.replaceChildren();
+  const W = el.clientWidth || 600, H = height, m = {t: 10, r: 12, b: 26, l: 40};
+  const series = d3.groups(rows, (r) => r.platform).sort((a, b) => PL.indexOf(a[0]) - PL.indexOf(b[0]));
+  const xs = rows.map((r) => parseX(r[xKey]));
+  let dom = d3.extent(xs);
+  if (+dom[0] === +dom[1]) dom = [d3.utcHour.offset(dom[0], -12), d3.utcHour.offset(dom[1], 12)];
+  const x = d3.scaleTime().domain(dom).range([m.l, W - m.r]);
+  const y = d3.scaleLinear().domain([0, Math.max(1, d3.max(rows, (r) => +r.value))]).nice().range([H - m.b, m.t]);
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`)
+    .attr('role', 'img').attr('aria-label', el.getAttribute('aria-label') || '');
+  const keys = Array.from(new Set(rows.map((r) => r[xKey]))).sort((a, b) => parseX(a) - parseX(b));
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(Math.min(keys.length, Math.max(2, Math.floor(W / 110)))).tickFormat(fmtX))
+    .call((g) => { g.select('.domain').style('stroke', 'var(--cds-chart-axis)'); g.selectAll('line').style('stroke', 'var(--cds-chart-axis)'); });
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('~s')).tickSize(-(W - m.l - m.r)))
+    .call((g) => { g.select('.domain').remove(); g.selectAll('line').style('stroke', 'var(--cds-chart-grid)'); });
+  series.forEach(([p, rs]) => {
+    rs = rs.slice().sort((a, b) => parseX(a[xKey]) - parseX(b[xKey]));
+    if (rs.length > 1) svg.append('path').datum(rs).attr('fill', 'none').style('stroke', ogColor(p)).attr('stroke-width', 2)
+      .attr('d', d3.line().x((r) => x(parseX(r[xKey]))).y((r) => y(+r.value)));
+    svg.selectAll(null).data(rs).join('circle').attr('cx', (r) => x(parseX(r[xKey]))).attr('cy', (r) => y(+r.value)).attr('r', rs.length > 1 ? 2.5 : 5).style('fill', ogColor(p));
+  });
+  const tip = d3.select(el).append('div').attr('class', 'og-tip').style('display', 'none');
+  const guide = svg.append('line').attr('y1', m.t).attr('y2', H - m.b).style('stroke', 'var(--cds-chart-reference)').style('display', 'none');
+  svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+    .on('pointermove', (ev) => {
+      const [mx] = d3.pointer(ev);
+      const k = keys[d3.minIndex(keys, (kk) => Math.abs(x(parseX(kk)) - mx))];
+      const at = rows.filter((r) => r[xKey] === k).sort((a, b) => PL.indexOf(a.platform) - PL.indexOf(b.platform));
+      guide.style('display', null).attr('x1', x(parseX(k))).attr('x2', x(parseX(k)));
+      tip.style('display', null).text(fmtX(parseX(k)) + '  ' + at.map((r) => r.platform + ' ' + ogFmt(r.value)).join(' · '));
+      const tw = tip.node().offsetWidth; let left = x(parseX(k)) + 10; if (left + tw > W) left = x(parseX(k)) - tw - 10;
+      tip.style('left', Math.max(0, left) + 'px').style('top', '4px');
+    })
+    .on('pointerleave', () => { tip.style('display', 'none'); guide.style('display', 'none'); });
+}
+
+dash.draw('daily', (el) => {
+  const d = dash.data('daily_all'), R = ogRange();
+  if (d.status === 'error') { el.textContent = '加载失败'; return; }
+  if (d.status !== 'ok' || !R) { el.textContent = '—'; return; }
+  const rows = d.data.filter((r) => r.date >= R.start && r.date <= R.end).map((r) => ({platform: r.platform, date: r.date, value: r.views}));
+  if (!rows.length) { el.textContent = '所选时段没有数据'; return; }
+  el.setAttribute('aria-label', `三个平台 ${R.start} 至 ${R.end} 每日浏览量折线图`);
+  ogLine(el, rows, 'date', ogParseDay, d3.utcFormat('%m-%d'), 240);
+});
+
+dash.draw('fol', (el) => {
+  const d = dash.data('snapshots');
+  if (d.status === 'error') { el.textContent = '加载失败'; return; }
+  if (d.status !== 'ok' || !d.data.length) { el.textContent = '—'; return; }
+  el.setAttribute('aria-label', '三个平台粉丝数随时间变化');
+  ogLine(el, d.data.map((r) => ({platform: r.platform, at: r.captured_at, value: +r.followers})), 'at', (s) => new Date(s), d3.timeFormat('%m-%d %H:%M'), 200);
+});
+
+/* ---------- post date filter ---------- */
+['p-from','p-to'].forEach((n) => dash.draw(n, (el) => {
+  const d = dash.data('posts');
+  if (d.status !== 'ok') return;
+  const ds = d.data.map((r) => r.date);
+  el.min = d3.min(ds); el.max = d3.max(d.data, (r) => r.captured_at).slice(0, 10);
+  const w = ogPostWin();
+  if (document.activeElement !== el) el.value = n === 'p-from' ? w.from : w.to;
+  el.onchange = () => {
+    if (el.value && !el.validity.valid) return;
+    const cur = ogPostWin();
+    dash.setParams(Object.assign({p_days: -1}, n === 'p-from' ? {p_from: el.value || null, p_to: cur.to || null} : {p_from: cur.from || null, p_to: el.value || null}));
+  };
+}));
+
+/* ---------- topic table ---------- */
+dash.draw('topics', (tb) => {
+  const d = dash.data('topic_views');
+  tb.replaceChildren();
+  if (d.status !== 'ok' || !d.data) return;
+  const rows = d.data.filter((r) => ogInWin(r.zh_date) || ogInWin(r.en_date));
+  if (!rows.length) { const tr = tb.insertRow(); const td = tr.insertCell(); td.colSpan = 10; td.className = 'l'; td.textContent = '该日期范围内没有发布内容'; return; }
+  rows.forEach((r) => {
+    const tr = tb.insertRow();
+    tr.setAttribute('data-key', encodeURIComponent(r.topic));
+    const cell = (v, cls) => { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; return td; };
+    const tc = tr.insertCell(); tc.className = 'l';
+    const nm = document.createElement('div'); nm.textContent = r.topic;
+    const ne = document.createElement('div'); ne.className = 'og-sub'; ne.textContent = r.topic_en || '';
+    const lk = document.createElement('div'); lk.className = 'og-links';
+    [['zh', '中文'], ['en', 'EN']].forEach(([lg, lab]) => {
+      const g = document.createElement('span'); g.textContent = lab + '：';
+      [['fb', 'FB'], ['ig', 'IG'], ['x', 'X']].forEach(([p, pl]) => {
+        const u = r[lg + '_' + p + '_url'];
+        if (!u || !u.startsWith('https://')) return;
+        const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; a.textContent = pl;
+        g.appendChild(a);
+      });
+      lk.appendChild(g);
+    });
+    tc.append(nm, ne, lk);
+    const zhIn = ogInWin(r.zh_date), enIn = ogInWin(r.en_date);
+    [['zh', zhIn], ['en', enIn]].forEach(([lg, inn]) => {
+      const dc = cell(r[lg + '_date'] || '—'); if (!inn) dc.style.opacity = .4;
+      ['fb', 'ig', 'x'].forEach((p) => {
+        const a = r['zh_' + p], b = r['en_' + p], v = r[lg + '_' + p];
+        const win = v != null && a != null && b != null && v > (lg === 'zh' ? b : a);
+        const td = cell(ogFmt(v), win ? 'og-win' : '');
+        if (!inn) td.style.opacity = .4;
+      });
+    });
+    cell(ogFmt(r.total), 'sum');
+  });
+});
+
+/* ---------- single-post compare ---------- */
+const MET = [
+  ['fb_views', 'Facebook 浏览'], ['fb_viewers', 'Facebook 浏览人数'],
+  ['ig_views', 'Instagram 浏览（推算）'], ['ig_reach', 'Instagram 覆盖人数'],
+  ['meta_interactions', 'Meta 互动（FB+IG）'], ['meta_likes', 'Meta 赞/心情'], ['meta_comments', 'Meta 评论'], ['meta_shares', 'Meta 分享'], ['meta_saves', 'Meta 收藏'], ['meta_link_clicks', 'Meta 链接点击'],
+  ['x_views', 'X 浏览'], ['x_likes', 'X 赞'], ['x_reposts', 'X 转发'], ['x_replies', 'X 回复'], ['x_bookmarks', 'X 收藏'],
+  ['total_views', '三平台合计浏览']
+];
+window.ogSel = () => {
+  const d = dash.data('posts_calc');
+  const all = d.status === 'ok' && d.data ? d.data.filter((r) => ogInWin(r.date)) : [];
+  let s = dash.params().sel;
+  s = Array.isArray(s) ? s.filter((id) => all.some((r) => r.post_id === id)) : null;
+  if (!s || !s.length) s = all.slice().sort((a, b) => d3.descending(a.total_views, b.total_views)).slice(0, 2).map((r) => r.post_id);
+  return {all, sel: s, rows: s.map((id) => all.find((r) => r.post_id === id)).filter(Boolean)};
+};
+window.ogPostColor = (i) => dash.colors[(3 + i) % dash.colors.length];
+
+dash.draw('chips', (el) => {
+  const S = ogSel();
+  el.replaceChildren();
+  S.all.slice().sort((a, b) => d3.descending(a.date, b.date) || d3.ascending(a.topic, b.topic)).forEach((r) => {
+    const b = document.createElement('button');
+    const on = S.sel.includes(r.post_id);
+    b.className = 'og-chip' + (on ? ' on' : '');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const dot = document.createElement('i'); dot.className = 'og-dot';
+    dot.style.background = on ? ogPostColor(S.sel.indexOf(r.post_id)) : 'var(--cds-chart-muted)';
+    const tag = document.createElement('span'); tag.className = 'og-tag'; tag.textContent = r.lang;
+    const t = document.createElement('span'); t.textContent = `${r.date.slice(5)} ${r.topic}`;
+    b.append(dot, tag, t);
+    b.title = r.title;
+    b.onclick = () => {
+      let s = S.sel.slice();
+      if (s.includes(r.post_id)) s = s.filter((x) => x !== r.post_id); else { s.push(r.post_id); if (s.length > 4) s.shift(); }
+      dash.setParams({sel: s.length ? s : null});
+    };
+    el.appendChild(b);
+  });
+});
+
+dash.draw('cmp-legend', (el) => {
+  const S = ogSel();
+  el.replaceChildren();
+  S.rows.forEach((r, i) => {
+    const sp = document.createElement('span'); const dot = document.createElement('i');
+    dot.className = 'og-dot'; dot.style.background = ogPostColor(i);
+    sp.append(dot, document.createTextNode(`${r.lang} · ${r.title}`));
+    el.appendChild(sp);
+  });
+});
+
+dash.draw('cmp-chart', (el) => {
+  const d = dash.data('posts_calc');
+  if (d.status === 'error') { el.textContent = '加载失败'; return; }
+  if (d.status !== 'ok') { el.textContent = '—'; return; }
+  const S = ogSel();
+  el.replaceChildren();
+  if (!S.rows.length) { el.textContent = '请选择帖子'; return; }
+  const groups = [['fb_views', 'Facebook'], ['ig_views', 'Instagram'], ['x_views', 'X'], ['total_views', '合计']];
+  const W = el.clientWidth || 600, H = 220, m = {t: 18, r: 8, b: 26, l: 40};
+  const x0 = d3.scaleBand().domain(groups.map((g) => g[1])).range([m.l, W - m.r]).paddingInner(0.25);
+  const x1 = d3.scaleBand().domain(S.rows.map((r) => r.post_id)).range([0, x0.bandwidth()]).padding(0.1);
+  const y = d3.scaleLinear().domain([0, Math.max(1, d3.max(S.rows, (r) => d3.max(groups, (g) => +r[g[0]] || 0)))]).nice().range([H - m.b, m.t]);
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`)
+    .attr('role', 'img').attr('aria-label', '所选帖子在各平台的浏览量对比柱状图');
+  svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('~s')).tickSize(-(W - m.l - m.r)))
+    .call((g) => { g.select('.domain').remove(); g.selectAll('line').style('stroke', 'var(--cds-chart-grid)'); });
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x0).tickSize(0))
+    .call((g) => g.select('.domain').style('stroke', 'var(--cds-chart-axis)'));
+  const tip = d3.select(el).append('div').attr('class', 'og-tip').style('display', 'none');
+  groups.forEach(([f, label]) => {
+    const g = svg.append('g').attr('transform', `translate(${x0(label)},0)`);
+    S.rows.forEach((r, i) => {
+      const v = +r[f] || 0, bx = x1(r.post_id), bw = x1.bandwidth();
+      g.append('rect').attr('x', bx).attr('width', bw).attr('y', y(v)).attr('height', y(0) - y(v)).attr('rx', 2).style('fill', ogPostColor(i))
+        .on('pointermove', (ev) => {
+          const [px, py] = d3.pointer(ev, el);
+          tip.style('display', null).text(`${r.lang} · ${r.topic} · ${label}：${ogFmt(r[f])}`);
+          const tw = tip.node().offsetWidth;
+          tip.style('left', Math.max(0, Math.min(W - tw, px + 10)) + 'px').style('top', Math.max(0, py - 30) + 'px');
+        })
+        .on('pointerleave', () => tip.style('display', 'none'));
+      if (bw >= 14) g.append('text').attr('x', bx + bw / 2).attr('y', y(v) - 4).attr('text-anchor', 'middle').text(ogFmt(r[f]));
+    });
+  });
+});
+
+dash.draw('cmp-head', (tr) => {
+  const S = ogSel();
+  tr.replaceChildren();
+  const th0 = document.createElement('th'); th0.className = 'l'; th0.textContent = '指标'; tr.appendChild(th0);
+  S.rows.forEach((r, i) => {
+    const th = document.createElement('th');
+    const dot = document.createElement('i'); dot.className = 'og-dot'; dot.style.background = ogPostColor(i); dot.style.marginRight = '6px';
+    th.append(dot, document.createTextNode(`${r.lang} · ${r.date.slice(5)} ${r.topic}`));
+    th.style.whiteSpace = 'normal';
+    tr.appendChild(th);
+  });
+});
+dash.draw('cmp-body', (tb) => {
+  const S = ogSel();
+  tb.replaceChildren();
+  if (!S.rows.length) return;
+  MET.forEach(([f, label]) => {
+    const tr = tb.insertRow();
+    const td0 = tr.insertCell(); td0.className = 'l'; td0.textContent = label;
+    const vals = S.rows.map((r) => ogNum(r[f]));
+    const mx = d3.max(vals);
+    vals.forEach((v) => { const td = tr.insertCell(); td.textContent = ogFmt(v); if (S.rows.length > 1 && v != null && v === mx && mx > 0 && vals.filter((x) => x === mx).length === 1) td.className = 'og-win'; });
+  });
+  const trl = tb.insertRow();
+  const l0 = trl.insertCell(); l0.className = 'l'; l0.textContent = '原帖链接';
+  S.rows.forEach((r) => {
+    const td = trl.insertCell();
+    [['fb_url', 'FB'], ['ig_url', 'IG'], ['x_url', 'X']].forEach(([f, lab]) => {
+      const u = r[f];
+      if (!u || !u.startsWith('https://')) return;
+      const a = document.createElement('a'); a.className = 'og-lk'; a.href = u; a.target = '_blank'; a.rel = 'noopener'; a.textContent = lab;
+      td.appendChild(a);
+    });
+  });
+});
+</script>
+</div>
+<script>window.__ogStart();</script>
+</body></html>
