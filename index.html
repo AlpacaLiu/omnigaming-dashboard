@@ -193,14 +193,38 @@ body{margin:0;background:var(--color-bg)}
   </section>
 
   <section id="daily">
-    <h2 style="margin-bottom:var(--cds-gap-sm)">每日浏览量</h2>
+    <div class="og-head">
+      <h2>每日浏览量</h2>
+      <div class="og-ctrl" id="d-ctrl">
+        <button class="og-btn" data-rk="d" data-days="7">近 7 天</button>
+        <button class="og-btn" data-rk="d" data-days="14">近 14 天</button>
+        <button class="og-btn" data-rk="d" data-days="30">近 30 天</button>
+        <button class="og-btn" data-rk="d" data-days="all">全部</button>
+        <span>自定义</span>
+        <input type="date" class="og-date" aria-label="每日浏览量开始日期" data-draw="d-start">
+        <span>至</span>
+        <input type="date" class="og-date" aria-label="每日浏览量结束日期" data-draw="d-end">
+      </div>
+    </div>
     <div class="og-legend"><span><i class="og-dot" data-draw="dot-fb2"></i>Facebook</span><span><i class="og-dot" data-draw="dot-ig2"></i>Instagram</span><span><i class="og-dot" data-draw="dot-x2"></i>X</span></div>
     <div class="og-chart" data-draw="daily" data-source="daily_all"></div>
-    <p class="muted">跟随上方时段。X 的每日浏览由每天最后一次读取的全部帖子浏览量相减得到，从 2026-11-12 起逐日出现。</p>
+    <p class="muted">X 的每日浏览由每天最后一次读取的全部帖子浏览量相减得到，从 2026-11-12 起逐日出现。</p>
   </section>
 
   <section id="followers">
-    <h2 style="margin-bottom:var(--cds-gap-sm)">粉丝数变化</h2>
+    <div class="og-head">
+      <h2>粉丝数变化</h2>
+      <div class="og-ctrl" id="f-ctrl">
+        <button class="og-btn" data-rk="f" data-days="7">近 7 天</button>
+        <button class="og-btn" data-rk="f" data-days="14">近 14 天</button>
+        <button class="og-btn" data-rk="f" data-days="30">近 30 天</button>
+        <button class="og-btn" data-rk="f" data-days="all">全部</button>
+        <span>自定义</span>
+        <input type="date" class="og-date" aria-label="粉丝数变化开始日期" data-draw="f-start">
+        <span>至</span>
+        <input type="date" class="og-date" aria-label="粉丝数变化结束日期" data-draw="f-end">
+      </div>
+    </div>
     <div class="og-legend"><span><i class="og-dot" data-draw="dot-fb3"></i>Facebook</span><span><i class="og-dot" data-draw="dot-ig3"></i>Instagram</span><span><i class="og-dot" data-draw="dot-x3"></i>X</span></div>
     <div class="og-chart" data-draw="fol" data-source="snapshots" style="min-height:200px"></div>
     <p class="muted">每次读取记一个点，从 2026-11-11 开始记录。</p>
@@ -441,6 +465,45 @@ dash.draw('s-until', (el) => {
   });
 }));
 
+/* ---------- chart windows (daily / followers) ---------- */
+window.ogWin = (k, days) => {
+  if (!days.length) return null;
+  const minDay = d3.min(days), maxDay = d3.max(days), p = dash.params();
+  let end = p[k + '_end'] || maxDay, start = p[k + '_start'];
+  const n = p[k + '_days'] || 7;
+  if (!start) start = n === 'all' ? minDay : ogDay(d3.utcDay.offset(ogParseDay(end), -(+n - 1)));
+  if (start > end) [start, end] = [end, start];
+  return {start, end, minDay, maxDay};
+};
+window.ogWinDays = (k) => {
+  if (k === 'd') { const d = dash.data('daily_all'); return d.status === 'ok' ? d.data.map((r) => r.date) : []; }
+  const s = dash.data('snapshots'); return s.status === 'ok' ? s.data.map((r) => r.captured_at.slice(0, 10)) : [];
+};
+document.querySelectorAll('[data-rk]').forEach((b) => b.addEventListener('click', () => {
+  const k = b.getAttribute('data-rk'), v = b.getAttribute('data-days');
+  dash.setParams({[k + '_days']: v === 'all' ? 'all' : +v, [k + '_start']: null, [k + '_end']: null});
+}));
+dash.onData(() => {
+  const p = dash.params();
+  document.querySelectorAll('[data-rk]').forEach((b) => {
+    const k = b.getAttribute('data-rk');
+    const custom = !!(p[k + '_start'] || p[k + '_end']);
+    b.className = 'og-btn' + (!custom && String(b.getAttribute('data-days')) === String(p[k + '_days'] || 7) ? ' on' : '');
+  });
+});
+['d', 'f'].forEach((k) => ['start', 'end'].forEach((side) => dash.draw(k + '-' + side, (el) => {
+  const R = ogWin(k, ogWinDays(k));
+  if (!R) return;
+  el.min = R.minDay; el.max = R.maxDay;
+  if (document.activeElement !== el) el.value = side === 'start' ? R.start : R.end;
+  el.onchange = () => {
+    if (!(el.value && el.validity.valid)) return;
+    const c = ogWin(k, ogWinDays(k));
+    dash.setParams(side === 'start' ? {[k + '_start']: el.value, [k + '_end']: c.end} : {[k + '_start']: c.start, [k + '_end']: el.value});
+  };
+  el.onblur = () => { const c = ogWin(k, ogWinDays(k)); if (c) el.value = side === 'start' ? c.start : c.end; };
+})));
+
 /* ---------- range controls ---------- */
 ['r-start','r-end'].forEach((n) => dash.draw(n, (el) => {
   const R = ogRange();
@@ -558,9 +621,11 @@ function ogLine(el, rows, xKey, parseX, fmtX, height, daily) {
 }
 
 dash.draw('daily', (el) => {
-  const d = dash.data('daily_all'), R = ogRange();
+  const d = dash.data('daily_all');
   if (d.status === 'error') { el.textContent = '加载失败'; return; }
-  if (d.status !== 'ok' || !R) { el.textContent = '—'; return; }
+  if (d.status !== 'ok') { el.textContent = '—'; return; }
+  const R = ogWin('d', d.data.map((r) => r.date));
+  if (!R) { el.textContent = '—'; return; }
   const rows = d.data.filter((r) => r.date >= R.start && r.date <= R.end).map((r) => ({platform: r.platform, date: r.date, value: r.views}));
   if (!rows.length) { el.textContent = '所选时段没有数据'; return; }
   el.setAttribute('aria-label', `三个平台 ${R.start} 至 ${R.end} 每日浏览量折线图`);
@@ -571,8 +636,11 @@ dash.draw('fol', (el) => {
   const d = dash.data('snapshots');
   if (d.status === 'error') { el.textContent = '加载失败'; return; }
   if (d.status !== 'ok' || !d.data.length) { el.textContent = '—'; return; }
+  const R = ogWin('f', d.data.map((r) => r.captured_at.slice(0, 10)));
+  const fr = R ? d.data.filter((r) => { const day = r.captured_at.slice(0, 10); return day >= R.start && day <= R.end; }) : [];
+  if (!fr.length) { el.replaceChildren(); el.textContent = '所选时段没有读取记录'; return; }
   el.setAttribute('aria-label', '三个平台粉丝数随时间变化');
-  ogLine(el, d.data.map((r) => ({platform: r.platform, at: r.captured_at, value: +r.followers})), 'at', (s) => new Date(s), d3.timeFormat('%m-%d %H:%M'), 200);
+  ogLine(el, fr.map((r) => ({platform: r.platform, at: r.captured_at, value: +r.followers})), 'at', (s) => new Date(s), d3.timeFormat('%m-%d %H:%M'), 200);
 });
 
 /* ---------- post date filter ---------- */
