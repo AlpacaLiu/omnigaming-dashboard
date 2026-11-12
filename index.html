@@ -159,7 +159,7 @@ body{margin:0;background:var(--color-bg)}
         <input type="date" class="og-date" aria-label="结束日期" data-draw="r-end">
       </div>
     </div>
-    <p class="muted" style="margin-bottom:var(--cds-gap-md)">时段：<span data-draw="r-label">—</span>，与前一个同长度时段相比。Meta 后台按天统计到昨天为止。</p>
+    <p class="muted" style="margin-bottom:var(--cds-gap-md)">时段：<span data-draw="r-label">—</span>，与前一个同长度时段相比。Meta 后台的数据统计到昨天为止，X 的每日数据算到最近一次读取。</p>
     <div class="og-cards" data-source="daily_all snapshots">
       <div class="og-card" id="card-fb">
         <h3><span class="og-dot" data-draw="dot-fb"></span>Facebook</h3>
@@ -360,7 +360,8 @@ dash.calc('topic_views', {
 window.ogRange = () => {
   const d = dash.data('daily_all');
   const meta = (d.status === 'ok' ? d.data : []).filter((r) => r.platform !== 'X');
-  const maxDay = d3.max(meta, (r) => r.date), minDay = d3.min(meta, (r) => r.date);
+  const all = d.status === 'ok' ? d.data : [];
+  const maxDay = d3.max(all, (r) => r.date), minDay = d3.min(meta, (r) => r.date);
   if (!maxDay) return null;
   const p = dash.params();
   let end = p.r_end || maxDay, start = p.r_start;
@@ -519,19 +520,19 @@ dash.draw('r-note', (el) => {
 });
 
 /* ---------- line chart ---------- */
-function ogLine(el, rows, xKey, parseX, fmtX, height) {
+function ogLine(el, rows, xKey, parseX, fmtX, height, daily) {
   el.replaceChildren();
-  const W = el.clientWidth || 600, H = height, m = {t: 10, r: 12, b: 26, l: 40};
+  const W = el.clientWidth || 600, H = height, m = {t: 10, r: daily ? 24 : 12, b: 26, l: 40};
   const series = d3.groups(rows, (r) => r.platform).sort((a, b) => PL.indexOf(a[0]) - PL.indexOf(b[0]));
   const xs = rows.map((r) => parseX(r[xKey]));
   let dom = d3.extent(xs);
   if (+dom[0] === +dom[1]) dom = [d3.utcHour.offset(dom[0], -12), d3.utcHour.offset(dom[1], 12)];
-  const x = d3.scaleTime().domain(dom).range([m.l, W - m.r]);
+  const x = (daily ? d3.scaleUtc() : d3.scaleTime()).domain(dom).range([m.l, W - m.r]);
   const y = d3.scaleLinear().domain([0, Math.max(1, d3.max(rows, (r) => +r.value))]).nice().range([H - m.b, m.t]);
   const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`)
     .attr('role', 'img').attr('aria-label', el.getAttribute('aria-label') || '');
   const keys = Array.from(new Set(rows.map((r) => r[xKey]))).sort((a, b) => parseX(a) - parseX(b));
-  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(Math.min(keys.length, Math.max(2, Math.floor(W / 110)))).tickFormat(fmtX))
+  svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(daily ? d3.axisBottom(x).tickValues(keys.filter((k, i) => i % Math.max(1, Math.ceil(keys.length / Math.max(2, Math.floor((W - m.l - m.r) / 52)))) === 0 || i === keys.length - 1).map(parseX)).tickFormat(fmtX) : d3.axisBottom(x).ticks(Math.min(keys.length, Math.max(2, Math.floor(W / 110)))).tickFormat(fmtX))
     .call((g) => { g.select('.domain').style('stroke', 'var(--cds-chart-axis)'); g.selectAll('line').style('stroke', 'var(--cds-chart-axis)'); });
   svg.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('~s')).tickSize(-(W - m.l - m.r)))
     .call((g) => { g.select('.domain').remove(); g.selectAll('line').style('stroke', 'var(--cds-chart-grid)'); });
@@ -563,7 +564,7 @@ dash.draw('daily', (el) => {
   const rows = d.data.filter((r) => r.date >= R.start && r.date <= R.end).map((r) => ({platform: r.platform, date: r.date, value: r.views}));
   if (!rows.length) { el.textContent = '所选时段没有数据'; return; }
   el.setAttribute('aria-label', `三个平台 ${R.start} 至 ${R.end} 每日浏览量折线图`);
-  ogLine(el, rows, 'date', ogParseDay, d3.utcFormat('%m-%d'), 240);
+  ogLine(el, rows, 'date', ogParseDay, d3.utcFormat('%m-%d'), 240, true);
 });
 
 dash.draw('fol', (el) => {
